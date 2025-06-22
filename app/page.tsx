@@ -2,13 +2,14 @@
 
 import type React from "react"
 import { useState, useRef, useEffect } from "react"
+import dynamic from "next/dynamic"
 import { generatePDF, generateBulkPDFs } from "@/lib/pdf-generator"
 
 /* ------------------------------------------------------------------ */
 /*  Bulk Offer Generation Dashboard – single–file client component    */
 /* ------------------------------------------------------------------ */
 
-export default function BulkOfferDashboard() {
+function BulkOfferDashboard() {
   /* ------------- state ------------- */
   const [excelFile, setExcelFile] = useState<File | null>(null)
   const [templateFile, setTemplateFile] = useState<File | null>(null)
@@ -18,7 +19,7 @@ export default function BulkOfferDashboard() {
   const [availableFields, setAvailableFields] = useState<string[]>([])
   const [mappedFields, setMappedFields] = useState<Record<string, string>>({})
   const [templateFields, setTemplateFields] = useState<string[]>([])
-  const [isClient, setIsClient] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStats, setGenerationStats] = useState({ total: 0, processing: 0, completed: 0, failed: 0 })
@@ -30,7 +31,7 @@ export default function BulkOfferDashboard() {
 
   // Fix Next.js hydration issue
   useEffect(() => {
-    setIsClient(true)
+    setMounted(true)
   }, [])
 
   /* ------------- helpers ------------- */
@@ -209,14 +210,9 @@ export default function BulkOfferDashboard() {
     alert("📄 This feature will create a combined PDF with all offer letters. Use 'Download All as ZIP' for individual files.")
   }
 
-  // Don't render until client-side to avoid hydration issues
-  if (!isClient) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading...</p>
-      </div>
-    </div>
+  // Don't render until mounted to avoid hydration issues
+  if (!mounted) {
+    return null
   }
 
   /* ------------- component ------------- */
@@ -499,3 +495,16 @@ export default function BulkOfferDashboard() {
     </div>
   )
 }
+
+// Export as dynamic component to prevent SSR issues
+export default dynamic(() => Promise.resolve(BulkOfferDashboard), {
+  ssr: false,
+  loading: () => (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading Bulk Offer Generator...</p>
+      </div>
+    </div>
+  )
+})
