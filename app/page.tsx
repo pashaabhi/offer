@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
+import { generatePDF, generateBulkPDFs } from "@/lib/pdf-generator"
 
 /* ------------------------------------------------------------------ */
 /*  Bulk Offer Generation Dashboard – single–file client component    */
@@ -17,6 +18,7 @@ export default function BulkOfferDashboard() {
   const [availableFields, setAvailableFields] = useState<string[]>([])
   const [mappedFields, setMappedFields] = useState<Record<string, string>>({})
   const [templateFields, setTemplateFields] = useState<string[]>([])
+  const [isClient, setIsClient] = useState(false)
 
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStats, setGenerationStats] = useState({ total: 0, processing: 0, completed: 0, failed: 0 })
@@ -25,6 +27,11 @@ export default function BulkOfferDashboard() {
 
   const excelInputRef = useRef<HTMLInputElement>(null)
   const templateInputRef = useRef<HTMLInputElement>(null)
+
+  // Fix Next.js hydration issue
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   /* ------------- helpers ------------- */
   const parseCsv = (text: string) => {
@@ -154,70 +161,62 @@ export default function BulkOfferDashboard() {
 
   /* ------------- download functions ------------- */
   const downloadSinglePDF = (rowData: any, index: number) => {
-    // Use student name and reference number format: NAME_REF_NUMBER.pdf
-    const studentName = rowData.name || `Student_${index + 1}`
-    const refNumber = rowData.Ref_number || `REF${String(index + 1).padStart(3, "0")}`
+    try {
+      // Use student name and reference number format: NAME_REF_NUMBER.pdf
+      const studentName = rowData.name || rowData.Name || `Student_${index + 1}`
+      const refNumber = rowData.Ref_number || rowData.ref_number || `REF${String(index + 1).padStart(3, "0")}`
 
-    // Clean the student name for filename
-    const cleanName = studentName.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_")
-    const fileName = `${cleanName}_${refNumber}.pdf`
+      // Clean the student name for filename
+      const cleanName = studentName.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_")
+      const fileName = `${cleanName}_${refNumber}.pdf`
 
-    // Use the ACTUAL template content from uploaded file
-    let personalizedContent = templateContent
+      if (!templateContent) {
+        alert("No template content found! Please upload a template first.")
+        return
+      }
 
-    if (!personalizedContent) {
-      alert("No template content found! Please upload a template first.")
-      return
+      // Generate the PDF using jsPDF
+      generatePDF(templateContent, rowData, mappedFields, fileName)
+
+      // Show success message
+      alert(`✅ Downloaded: ${fileName}\n\nPDF file generated successfully with your template format and ${studentName}'s data!`)
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      alert(`❌ Error generating PDF: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-
-    // Replace all placeholders with actual data from Excel
-    Object.entries(mappedFields).forEach(([placeholder, excelField]) => {
-      const value = rowData[excelField] || `[${placeholder}]`
-      // Use global replace to replace all instances
-      personalizedContent = personalizedContent.replace(new RegExp(placeholder.replace(/[{}]/g, "\\$&"), "g"), value)
-    })
-
-    // Replace any remaining unmapped placeholders with current date or default values
-    personalizedContent = personalizedContent.replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
-    personalizedContent = personalizedContent.replace(/\{\{today\}\}/g, new Date().toLocaleDateString())
-
-    // Create a simple PDF-like content (text format that can be saved as PDF)
-    const pdfContent = `
-OFFER LETTER
-
-Reference: ${refNumber}
-Date: ${new Date().toLocaleDateString()}
-
-${personalizedContent}
-
----
-Generated on: ${new Date().toLocaleString()}
-File: ${fileName}
-  `
-
-    // Create blob with PDF content
-    const blob = new Blob([pdfContent], { type: "application/pdf" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    // Show success message
-    alert(`✅ Downloaded: ${fileName}\n\nPDF file ready with your template format and ${studentName}'s data!`)
   }
 
   const downloadAllAsZip = () => {
-    alert(
-      `📦 Preparing ZIP file with ${previewData.length} personalized offer letters...\n\n✅ Each file will use your exact template format with individual student data!`,
-    )
+    try {
+      if (!templateContent) {
+        alert("No template content found! Please upload a template first.")
+        return
+      }
+
+      // Generate all PDFs
+      generateBulkPDFs(templateContent, previewData, mappedFields)
+      
+      alert(
+        `📦 Generated ${previewData.length} personalized offer letters!\n\n✅ Each file uses your exact template format with individual student data!`,
+      )
+    } catch (error) {
+      console.error('Error generating bulk PDFs:', error)
+      alert(`❌ Error generating PDFs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   const downloadAllAsPDF = () => {
-    alert("📄 This will create a combined PDF with all offer letters using your exact template format.")
+    alert("📄 This feature will create a combined PDF with all offer letters. Use 'Download All as ZIP' for individual files.")
+  }
+
+  // Don't render until client-side to avoid hydration issues
+  if (!isClient) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading...</p>
+      </div>
+    </div>
   }
 
   /* ------------- component ------------- */
@@ -448,6 +447,22 @@ File: ${fileName}
               <div className="mt-6 space-y-4">
                 <h3 className="font-medium">📥 Download Your Personalized Offers</h3>
 
+                {/* Bulk Download Options */}
+                <div className="flex gap-4 mb-4">
+                  <button
+                    onClick={downloadAllAsZip}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2"
+                  >
+                    📦 Download All Individual PDFs
+                  </button>
+                  <button
+                    onClick={downloadAllAsPDF}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded flex items-center gap-2"
+                  >
+                    📄 Download Combined PDF
+                  </button>
+                </div>
+
                 {/* Individual Files List */}
                 <div className="border rounded bg-white">
                   <div className="p-3 border-b bg-gray-50">
@@ -462,8 +477,8 @@ File: ${fileName}
                         <div className="flex items-center gap-2">
                           <span className="text-red-500">📄</span>
                           <span className="text-sm">
-                            {(row.name || `Student ${index + 1}`).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_")}_
-                            {row.Ref_number || `REF${String(index + 1).padStart(3, "0")}`}.pdf
+                            {(row.name || row.Name || `Student ${index + 1}`).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_")}_
+                            {row.Ref_number || row.ref_number || `REF${String(index + 1).padStart(3, "0")}`}.pdf
                           </span>
                         </div>
                         <button
